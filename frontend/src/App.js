@@ -10,6 +10,7 @@ import AddressPage from './pages/AddressPage';
 import BlocksPage from './pages/BlocksPage';
 import TransactionsPage from './pages/TransactionsPage';
 import ValidatorsPage from './pages/ValidatorsPage';
+import TestBlockCard from './pages/TestBlockCard';
 import NotFoundPage from './pages/NotFoundPage';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 
@@ -28,6 +29,7 @@ function App() {
               <Route path="/tx/:hash" element={<TransactionPage />} />
               <Route path="/address/:address" element={<AddressPage />} />
               <Route path="/validators" element={<ValidatorsPage />} />
+              <Route path="/test-block-card" element={<TestBlockCard />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Box>

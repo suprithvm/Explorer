@@ -41,18 +41,24 @@ async function processBlock(blockHash) {
         await connection.execute(
           `INSERT INTO blocks (
             number, hash, previous_hash, timestamp, mined_by, validated_by, 
-            difficulty, is_pow, size, gas_used, gas_limit
-          ) VALUES (?, ?, ?, FROM_UNIXTIME(?), ?, ?, ?, ?, ?, ?, ?)
+            difficulty, total_difficulty, is_pow, size, gas_used, gas_limit,
+            nonce, merkle_root, state_root, receipts_root
+          ) VALUES (?, ?, ?, FROM_UNIXTIME(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE 
             previous_hash = VALUES(previous_hash),
             timestamp = VALUES(timestamp),
             mined_by = VALUES(mined_by),
             validated_by = VALUES(validated_by),
             difficulty = VALUES(difficulty),
+            total_difficulty = VALUES(total_difficulty),
             is_pow = VALUES(is_pow),
             size = VALUES(size),
             gas_used = VALUES(gas_used),
-            gas_limit = VALUES(gas_limit)`,
+            gas_limit = VALUES(gas_limit),
+            nonce = VALUES(nonce),
+            merkle_root = VALUES(merkle_root),
+            state_root = VALUES(state_root),
+            receipts_root = VALUES(receipts_root)`,
           [
             blockNumber,
             block.hash,
@@ -63,13 +69,19 @@ async function processBlock(blockHash) {
             block.validator || null, // PoS validator if available
             typeof block.difficulty === 'string' && block.difficulty.startsWith('0x') ? 
               parseInt(block.difficulty, 16) : parseInt(block.difficulty || '0'),
+            typeof block.totalDifficulty === 'string' && block.totalDifficulty.startsWith('0x') ?
+              parseInt(block.totalDifficulty, 16) : parseInt(block.totalDifficulty || '0'),
             !block.validator, // is_pow true if no validator
             typeof block.size === 'string' && block.size.startsWith('0x') ? 
               parseInt(block.size, 16) : parseInt(block.size || '0'),
             typeof block.gasUsed === 'string' && block.gasUsed.startsWith('0x') ? 
               parseInt(block.gasUsed, 16) : parseInt(block.gasUsed || '0'),
             typeof block.gasLimit === 'string' && block.gasLimit.startsWith('0x') ? 
-              parseInt(block.gasLimit, 16) : parseInt(block.gasLimit || '0')
+              parseInt(block.gasLimit, 16) : parseInt(block.gasLimit || '0'),
+            block.nonce || null,
+            block.merkleRoot || null,
+            block.stateRoot || null,
+            block.receiptsRoot || null
           ]
         );
 
@@ -82,6 +94,15 @@ async function processBlock(blockHash) {
         
         // Update validator stats if it's a PoS block
         if (block.validator) {
+          // First ensure the validator address exists in addresses table
+          await connection.execute(
+            `INSERT INTO addresses (address, balance, total_received, total_sent, tx_count)
+             VALUES (?, 0, 0, 0, 0)
+             ON DUPLICATE KEY UPDATE address = VALUES(address)`, 
+            [block.validator]
+          );
+          
+          // Now it's safe to update validators table
           await connection.execute(
             `INSERT INTO validators (address, blocks_validated) 
              VALUES (?, 1) 
@@ -100,6 +121,12 @@ async function processBlock(blockHash) {
       // Normalize Supereum block format
       const block = normalizeBlockData(blockData);
       
+      // Add totalDifficulty if not present
+      if (block.totalDifficulty === undefined) {
+        block.totalDifficulty = block.difficulty || '0';
+        console.log(`Added missing totalDifficulty to block ${block.number}`);
+      }
+      
       // Convert block number to integer - handle both hex and decimal formats
       const blockNumber = typeof block.number === 'string' && block.number.startsWith('0x') ?
         parseInt(block.number, 16) : parseInt(block.number);
@@ -115,18 +142,24 @@ async function processBlock(blockHash) {
         await connection.execute(
           `INSERT INTO blocks (
             number, hash, previous_hash, timestamp, mined_by, validated_by, 
-            difficulty, is_pow, size, gas_used, gas_limit
-          ) VALUES (?, ?, ?, FROM_UNIXTIME(?), ?, ?, ?, ?, ?, ?, ?)
+            difficulty, total_difficulty, is_pow, size, gas_used, gas_limit,
+            nonce, merkle_root, state_root, receipts_root
+          ) VALUES (?, ?, ?, FROM_UNIXTIME(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE 
             previous_hash = VALUES(previous_hash),
             timestamp = VALUES(timestamp),
             mined_by = VALUES(mined_by),
             validated_by = VALUES(validated_by),
             difficulty = VALUES(difficulty),
+            total_difficulty = VALUES(total_difficulty),
             is_pow = VALUES(is_pow),
             size = VALUES(size),
             gas_used = VALUES(gas_used),
-            gas_limit = VALUES(gas_limit)`,
+            gas_limit = VALUES(gas_limit),
+            nonce = VALUES(nonce),
+            merkle_root = VALUES(merkle_root),
+            state_root = VALUES(state_root),
+            receipts_root = VALUES(receipts_root)`,
           [
             blockNumber,
             block.hash,
@@ -137,13 +170,19 @@ async function processBlock(blockHash) {
             block.validator || null, // PoS validator if available
             typeof block.difficulty === 'string' && block.difficulty.startsWith('0x') ? 
               parseInt(block.difficulty, 16) : parseInt(block.difficulty || '0'),
+            typeof block.totalDifficulty === 'string' && block.totalDifficulty.startsWith('0x') ?
+              parseInt(block.totalDifficulty, 16) : parseInt(block.totalDifficulty || '0'),
             !block.validator, // is_pow true if no validator
             typeof block.size === 'string' && block.size.startsWith('0x') ? 
               parseInt(block.size, 16) : parseInt(block.size || '0'),
             typeof block.gasUsed === 'string' && block.gasUsed.startsWith('0x') ? 
               parseInt(block.gasUsed, 16) : parseInt(block.gasUsed || '0'),
             typeof block.gasLimit === 'string' && block.gasLimit.startsWith('0x') ? 
-              parseInt(block.gasLimit, 16) : parseInt(block.gasLimit || '0')
+              parseInt(block.gasLimit, 16) : parseInt(block.gasLimit || '0'),
+            block.nonce || null,
+            block.merkleRoot || null,
+            block.stateRoot || null,
+            block.receiptsRoot || null
           ]
         );
 
@@ -156,6 +195,15 @@ async function processBlock(blockHash) {
         
         // Update validator stats if it's a PoS block
         if (block.validator) {
+          // First ensure the validator address exists in addresses table
+          await connection.execute(
+            `INSERT INTO addresses (address, balance, total_received, total_sent, tx_count)
+             VALUES (?, 0, 0, 0, 0)
+             ON DUPLICATE KEY UPDATE address = VALUES(address)`, 
+            [block.validator]
+          );
+          
+          // Now it's safe to update validators table
           await connection.execute(
             `INSERT INTO validators (address, blocks_validated) 
              VALUES (?, 1) 
@@ -204,7 +252,8 @@ function normalizeBlockData(blockData) {
         gasUsed: tx.GasUsed || 0,
         timestamp: tx.Timestamp,
         type: tx.TxType,
-        data: tx.Data
+        data: tx.Data,
+        confirmed: true // Add confirmed status for transactions in block
       };
     });
     
@@ -217,13 +266,18 @@ function normalizeBlockData(blockData) {
       miner: header.MinedBy,
       validator: header.ValidatedBy,
       difficulty: header.Difficulty,
+      totalDifficulty: blockData.cumulativeDifficulty || '0',
       size: blockData.size || 1000, // Default if not provided
       gasUsed: header.GasUsed,
       gasLimit: header.GasLimit,
+      nonce: header.Nonce,
+      merkleRoot: header.MerkleRoot,
+      stateRoot: header.StateRoot,
+      receiptsRoot: header.ReceiptsRoot,
       transactions: transactions
     };
     
-    console.log(`Normalized block ${normalizedBlock.number} with hash ${normalizedBlock.hash}`);
+    console.log(`Normalized block ${normalizedBlock.number} with hash ${normalizedBlock.hash} with nonce: ${normalizedBlock.nonce}, merkleRoot: ${normalizedBlock.merkleRoot}`);
     return normalizedBlock;
   }
   
@@ -246,9 +300,11 @@ async function processTransaction(tx, block, connection) {
     // Safely convert transaction value
     let txValue = 0;
     try {
-      txValue = parseFloat(tx.value) || 0;
+      // First try to get value from tx.value, if not available, try tx.Amount (used in Supereum format)
+      txValue = parseFloat(tx.value) || parseFloat(tx.Amount) || 0;
+      console.log(`Parsed transaction value: ${txValue} from input: ${tx.value || tx.Amount}`);
     } catch (e) {
-      console.warn(`Could not parse transaction value: ${tx.value}`);
+      console.warn(`Could not parse transaction value: ${tx.value || tx.Amount}`);
     }
     
     // Calculate gas fee safely
@@ -261,7 +317,45 @@ async function processTransaction(tx, block, connection) {
       console.warn(`Could not calculate gas fee for transaction ${tx.hash}`);
     }
     
-    // Insert transaction
+    // Create or update address records first to avoid foreign key issues
+    // Add both sender and receiver addresses to ensure they exist
+    if (tx.from) {
+      await connection.execute(
+        `INSERT INTO addresses (address, balance, total_sent, total_received, tx_count) 
+         VALUES (?, 0, ?, 0, 1) 
+         ON DUPLICATE KEY UPDATE 
+           total_sent = total_sent + ?,
+           tx_count = tx_count + 1`,
+        [tx.from, txValue, txValue]
+      );
+    }
+
+    if (tx.to) {
+      await connection.execute(
+        `INSERT INTO addresses (address, balance, total_received, total_sent, tx_count) 
+         VALUES (?, ?, ?, 0, 1) 
+         ON DUPLICATE KEY UPDATE 
+           total_received = total_received + ?,
+           tx_count = tx_count + 1`,
+        [tx.to, txValue, txValue, txValue]
+      );
+    }
+    
+    // Determine transaction status
+    // Check for status in tx.status, tx.confirmed, or default to 'confirmed'
+    let status = 'unknown';
+    if (tx.status) {
+      status = tx.status;
+    } else if (tx.confirmed !== undefined) {
+      status = tx.confirmed === true ? 'confirmed' : 'failed';
+    } else {
+      // Default to confirmed for transactions in blocks
+      status = 'confirmed';
+    }
+    
+    console.log(`Setting transaction ${tx.hash} status to: ${status}`);
+    
+    // Now that addresses exist, insert transaction
     await connection.execute(
       `INSERT INTO transactions (
         id, block_number, block_hash, sender, receiver, amount, 
@@ -283,38 +377,13 @@ async function processTransaction(tx, block, connection) {
         block.hash,
         tx.from,
         tx.to,
-        txValue / 1e18, // Convert from wei to SUP
+        txValue, // Do not divide by 1e18 - Supereum amounts are already in the correct units
         gasFee, // Calculated gas fee
         tx.type || 0,
         timestamp,
-        tx.status || true
+        status
       ]
     );
-
-    // Update or create address records
-    if (tx.from) {
-      // Sender
-      await connection.execute(
-        `INSERT INTO addresses (address, balance, total_sent, tx_count) 
-         VALUES (?, 0, ?, 1) 
-         ON DUPLICATE KEY UPDATE 
-           total_sent = total_sent + ?,
-           tx_count = tx_count + 1`,
-        [tx.from, txValue / 1e18, txValue / 1e18]
-      );
-    }
-
-    if (tx.to) {
-      // Receiver
-      await connection.execute(
-        `INSERT INTO addresses (address, balance, total_received, tx_count) 
-         VALUES (?, ?, ?, 1) 
-         ON DUPLICATE KEY UPDATE 
-           total_received = total_received + ?,
-           tx_count = tx_count + 1`,
-        [tx.to, txValue / 1e18, txValue / 1e18, txValue / 1e18]
-      );
-    }
 
     console.log(`Processed transaction ${tx.hash}`);
     return true;

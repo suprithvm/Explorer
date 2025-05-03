@@ -26,6 +26,9 @@ CREATE TABLE blocks (
   gas_limit BIGINT NOT NULL,
   extra_data TEXT,
   nonce VARCHAR(18),
+  merkle_root VARCHAR(66),
+  state_root VARCHAR(66),
+  receipts_root VARCHAR(66),
   is_pow BOOLEAN NOT NULL DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -78,17 +81,23 @@ CREATE TABLE addresses (
 
 -- Create validators table
 CREATE TABLE validators (
-  address VARCHAR(42) PRIMARY KEY,
-  status VARCHAR(20) DEFAULT 'active',
+  address VARCHAR(100) PRIMARY KEY,
+  status INT DEFAULT 0,
   total_stake DECIMAL(36, 18) DEFAULT 0,
   voting_power DECIMAL(10, 2) DEFAULT 0,
   blocks_validated INT DEFAULT 0,
-  commission_rate DECIMAL(5, 2) DEFAULT 0,
+  blocks_proposed INT DEFAULT 0,
+  missed_validations INT DEFAULT 0,
+  score DECIMAL(10, 2) DEFAULT 0,
   uptime DECIMAL(5, 2) DEFAULT 100.0,
-  is_slashed BOOLEAN DEFAULT 0,
+  host_id VARCHAR(100),
+  is_validator BOOLEAN DEFAULT 1,
+  last_active DATETIME,
+  last_reward_time DATETIME,
+  start_time DATETIME,
+  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (address) REFERENCES addresses(address) ON DELETE CASCADE,
   INDEX idx_stake (total_stake),
   INDEX idx_blocks_validated (blocks_validated)
 ) ENGINE=InnoDB;
@@ -127,4 +136,4 @@ BEGIN
     total_sent = IF(NOT is_receiver, total_sent + amount, total_sent);
 END //
 
-DELIMITER ; 
+DELIMITER ;

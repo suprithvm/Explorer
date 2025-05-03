@@ -58,10 +58,33 @@ export const getBlockByIdentifier = async (identifier) => {
 export const getBlockTransactions = async (identifier, page = 1, limit = 20) => {
   try {
     const response = await api.get(`/blocks/${identifier}/transactions?page=${page}&limit=${limit}`);
-    return response.data;
+    
+    // Handle standard response format
+    const data = response.data;
+    
+    return {
+      data: data.transactions || [],
+      pagination: {
+        page: data.pagination?.page || page,
+        limit: data.pagination?.limit || limit,
+        total: data.pagination?.total || 0,
+        totalPages: data.pagination?.totalPages || 1,
+        hasNext: data.pagination?.hasNext || false
+      }
+    };
   } catch (error) {
     console.error(`Error fetching transactions for block ${identifier}:`, error);
-    throw error;
+    // Return empty but valid data structure
+    return {
+      data: [],
+      pagination: {
+        page: page,
+        limit: limit,
+        total: 0,
+        totalPages: 0,
+        hasNext: false
+      }
+    };
   }
 };
 
@@ -113,27 +136,82 @@ export const getAddressDetails = async (address) => {
     return response.data;
   } catch (error) {
     console.error(`Error fetching address ${address}:`, error);
-    throw error;
+    // Return a default empty structure instead of throwing
+    return {
+      address: address,
+      balance: 0,
+      total_received: 0,
+      total_sent: 0,
+      tx_count: 0
+    };
   }
 };
 
 export const getAddressTransactions = async (address, page = 1, limit = 20) => {
   try {
     const response = await api.get(`/address/${address}/transactions?page=${page}&limit=${limit}`);
-    return response.data;
+    
+    // Handle standard response format from our backend
+    const data = response.data;
+    
+    // Return data in a consistent format
+    return {
+      transactions: data.transactions || [],
+      pagination: {
+        page: data.pagination?.page || page,
+        limit: data.pagination?.limit || limit,
+        total: data.pagination?.total || 0,
+        totalPages: data.pagination?.totalPages || 1,
+        hasNext: data.pagination?.hasNext || false
+      }
+    };
   } catch (error) {
     console.error(`Error fetching transactions for address ${address}:`, error);
-    throw error;
+    // Return an empty but valid response structure on error
+    return {
+      transactions: [],
+      pagination: {
+        page: page,
+        limit: limit,
+        total: 0,
+        totalPages: 0,
+        hasNext: false
+      }
+    };
   }
 };
 
 export const getAddressBlocks = async (address, page = 1, limit = 20) => {
   try {
     const response = await api.get(`/address/${address}/blocks?page=${page}&limit=${limit}`);
-    return response.data;
+    
+    // Handle standard response format
+    const data = response.data;
+    
+    // Return data in a consistent format
+    return {
+      blocks: data.blocks || [],
+      pagination: {
+        page: data.pagination?.page || page,
+        limit: data.pagination?.limit || limit,
+        total: data.pagination?.total || 0,
+        totalPages: data.pagination?.totalPages || 1,
+        hasNext: data.pagination?.hasNext || false
+      }
+    };
   } catch (error) {
     console.error(`Error fetching blocks for address ${address}:`, error);
-    throw error;
+    // Return an empty but valid response structure on error
+    return {
+      blocks: [],
+      pagination: {
+        page: page,
+        limit: limit,
+        total: 0,
+        totalPages: 0,
+        hasNext: false
+      }
+    };
   }
 };
 
@@ -141,10 +219,33 @@ export const getAddressBlocks = async (address, page = 1, limit = 20) => {
 export const getValidators = async (page = 1, limit = 20) => {
   try {
     const response = await api.get(`/stats/validators?page=${page}&limit=${limit}`);
-    return response.data;
+    
+    // Return the response data with lastUpdated timestamp
+    return {
+      data: response.data.data || [],
+      pagination: response.data.pagination || {
+        page,
+        limit,
+        total: 0,
+        totalPages: 0,
+        hasNext: false
+      },
+      lastUpdated: response.data.lastUpdated || null
+    };
   } catch (error) {
     console.error('Error fetching validators:', error);
-    throw error;
+    // Return empty data instead of throwing
+    return {
+      data: [],
+      pagination: {
+        page,
+        limit,
+        total: 0,
+        totalPages: 0,
+        hasNext: false
+      },
+      lastUpdated: null
+    };
   }
 };
 

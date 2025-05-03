@@ -24,6 +24,17 @@ router.get('/', async (req, res) => {
         [parseInt(limit), parseInt(offset)] // Fix: Ensure parameters are integers
       );
 
+      // Normalize status values for all transactions
+      for (const tx of transactions) {
+        if (tx.status === 'true' || tx.status === true) {
+          tx.status = 'confirmed';
+        } else if (tx.status === 'false' || tx.status === false) {
+          tx.status = 'failed';
+        } else if (!tx.status) {
+          tx.status = 'unknown';
+        }
+      }
+
       // Get total count for pagination
       const totalResult = await db.query('SELECT COUNT(*) as total FROM transactions');
       const total = totalResult[0]?.total || 0;
@@ -72,6 +83,40 @@ router.get('/:hash', async (req, res) => {
     );
 
     if (!transaction || transaction.length === 0) {
+      // If not found in database, try to fetch from blockchain directly
+      console.log(`Transaction ${hash} not found in database, fetching from blockchain...`);
+      const txFromChain = await getTransactionByHash(hash);
+      
+      if (txFromChain) {
+        console.log(`Successfully fetched transaction ${hash} from blockchain`);
+        
+        // Ensure the status field is properly set
+        if (txFromChain.confirmed !== undefined && !txFromChain.status) {
+          txFromChain.status = txFromChain.confirmed === true ? 'confirmed' : 'failed';
+        } else if (!txFromChain.status) {
+          txFromChain.status = 'unknown';
+        }
+        
+        // If the transaction has a block number/hash, fetch the block info
+        if (txFromChain.blockNumber || txFromChain.blockHash) {
+          const blockNumber = txFromChain.blockNumber;
+          const block = await db.query(
+            `SELECT 
+              number, hash, UNIX_TIMESTAMP(timestamp) as timestamp,
+              mined_by as miner, is_pow as isPow
+            FROM blocks
+            WHERE number = ?`,
+            [blockNumber]
+          );
+          
+          if (block && block.length > 0) {
+            txFromChain.block = block[0];
+          }
+        }
+        
+        return res.json(txFromChain);
+      }
+      
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
@@ -86,6 +131,15 @@ router.get('/:hash', async (req, res) => {
     );
 
     transaction[0].block = block.length > 0 ? block[0] : null;
+    
+    // Normalize status field for frontend
+    if (transaction[0].status === 'true' || transaction[0].status === true) {
+      transaction[0].status = 'confirmed';
+    } else if (transaction[0].status === 'false' || transaction[0].status === false) {
+      transaction[0].status = 'failed';
+    } else if (!transaction[0].status) {
+      transaction[0].status = 'unknown';
+    }
 
     res.json(transaction[0]);
   } catch (error) {
@@ -138,6 +192,17 @@ router.get('/search', async (req, res) => {
     queryParams.push(parseInt(limit), parseInt(offset));
 
     const transactions = await db.query(query, queryParams);
+    
+    // Normalize status values for all transactions
+    for (const tx of transactions) {
+      if (tx.status === 'true' || tx.status === true) {
+        tx.status = 'confirmed';
+      } else if (tx.status === 'false' || tx.status === false) {
+        tx.status = 'failed';
+      } else if (!tx.status) {
+        tx.status = 'unknown';
+      }
+    }
 
     // Count query for pagination
     let countQuery = `

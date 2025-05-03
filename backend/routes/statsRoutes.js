@@ -1,7 +1,117 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
-const { getChainInfo } = require('../blockchain/rpcClient');
+const { getChainInfo, getValidators } = require('../blockchain/rpcClient');
+
+// Cache for validators data
+let validatorsCache = {
+  data: null,
+  lastUpdated: null
+};
+
+// Update interval in milliseconds (2 minutes)
+const VALIDATOR_UPDATE_INTERVAL = 2 * 60 * 1000;
+
+// Function to sync validators to the database
+async function syncValidatorsToDb(validatorsRPC) {
+  if (!validatorsRPC || !validatorsRPC.validators || !validatorsRPC.validators.length) {
+    console.log('No validators to sync');
+    return;
+  }
+
+  console.log(`Found ${validatorsRPC.validators.length} validators from RPC, syncing to database`);
+  
+  try {
+    await db.withTransaction(async (connection) => {
+      for (const validator of validatorsRPC.validators) {
+        // Update or insert validator
+        await connection.execute(
+          `INSERT INTO validators (
+            address, status, total_stake, blocks_validated, blocks_proposed,
+            missed_validations, uptime, score, host_id, is_validator,
+            last_active, last_reward_time, start_time, last_updated
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+          ON DUPLICATE KEY UPDATE
+            status = VALUES(status),
+            total_stake = VALUES(total_stake),
+            blocks_validated = VALUES(blocks_validated),
+            blocks_proposed = VALUES(blocks_proposed),
+            missed_validations = VALUES(missed_validations),
+            uptime = VALUES(uptime),
+            score = VALUES(score),
+            host_id = VALUES(host_id),
+            is_validator = VALUES(is_validator),
+            last_active = VALUES(last_active),
+            last_reward_time = VALUES(last_reward_time),
+            last_updated = NOW()`,
+          [
+            validator.address,
+            validator.status || 0,
+            validator.stake?.amount || 0,
+            validator.performance?.blocksValidated || 0,
+            validator.performance?.blocksProposed || 0,
+            validator.performance?.missedValidations || 0,
+            validator.performance?.uptimePercentage || 100,
+            validator.score || 0,
+            validator.stake?.hostID || null,
+            validator.stake?.isValidator || true,
+            validator.lastActive ? new Date(validator.lastActive) : null,
+            validator.stake?.lastRewardTime ? new Date(validator.stake.lastRewardTime) : null,
+            validator.stake?.startTime ? new Date(validator.stake.startTime) : null
+          ]
+        );
+      }
+      
+      // Calculate voting power percentages
+      await connection.execute(
+        `UPDATE validators
+         SET voting_power = (total_stake / (SELECT SUM(total_stake) FROM validators)) * 100`
+      );
+    });
+    
+    console.log('Successfully updated validators in the database');
+    return true;
+  } catch (dbError) {
+    console.error('Error updating validators in database:', dbError);
+    return false;
+  }
+}
+
+// Function to refresh validators data
+async function refreshValidatorsData() {
+  try {
+    // Check if cache needs updating (expired or null)
+    const now = Date.now();
+    if (!validatorsCache.lastUpdated || (now - validatorsCache.lastUpdated > VALIDATOR_UPDATE_INTERVAL)) {
+      console.log('Validators cache expired, refreshing data...');
+      
+      // Fetch current validators from the blockchain
+      const validatorsRPC = await getValidators();
+      
+      // If we got data from the RPC, sync it to the database
+      if (validatorsRPC && validatorsRPC.validators) {
+        // Sync to database
+        await syncValidatorsToDb(validatorsRPC);
+        
+        // Update the cache
+        validatorsCache = {
+          data: validatorsRPC,
+          lastUpdated: now
+        };
+        
+        console.log('Validators cache updated at', new Date(now).toISOString());
+      }
+    }
+  } catch (error) {
+    console.error('Error refreshing validators data:', error);
+  }
+}
+
+// Schedule periodic refresh
+setInterval(refreshValidatorsData, VALIDATOR_UPDATE_INTERVAL);
+
+// Immediate first refresh on server start
+refreshValidatorsData();
 
 // GET /api/stats/network - Get network statistics
 router.get('/network', async (req, res) => {
@@ -37,7 +147,7 @@ router.get('/network', async (req, res) => {
     // Get active validators count
     let activeValidators = 0;
     try {
-      const validatorsResult = await db.query('SELECT COUNT(*) as count FROM validators WHERE status = "active"');
+      const validatorsResult = await db.query('SELECT COUNT(*) as count FROM validators WHERE status = 0');
       activeValidators = validatorsResult[0]?.count || 0;
     } catch (err) {
       console.warn('Failed to get active validators count:', err.message);
@@ -76,47 +186,112 @@ router.get('/validators', async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
     
-    // First check if validators table exists
+    // Trigger a refresh only if cache is expired
+    if (!validatorsCache.lastUpdated || (Date.now() - validatorsCache.lastUpdated > VALIDATOR_UPDATE_INTERVAL)) {
+      await refreshValidatorsData();
+    }
+    
+    // Get validators from database with pagination
     try {
-      // Get validators sorted by blocks validated
       const validators = await db.query(
         `SELECT 
-          validators.address, 
-          validators.total_stake, 
-          validators.blocks_validated,
-          addresses.balance,
-          addresses.tx_count
-        FROM validators
-        LEFT JOIN addresses ON validators.address = addresses.address
-        ORDER BY validators.blocks_validated DESC
+          v.address, 
+          v.status,
+          v.total_stake as stake, 
+          v.voting_power as votingPower,
+          v.blocks_validated as blocksValidated,
+          v.blocks_proposed as blocksProposed,
+          v.missed_validations as missedValidations,
+          v.score,
+          v.uptime,
+          v.host_id as hostId,
+          v.is_validator as isValidator,
+          v.last_active as lastActive,
+          v.last_updated as lastUpdated
+        FROM validators v
+        ORDER BY v.blocks_validated DESC, v.total_stake DESC
         LIMIT ? OFFSET ?`,
         [parseInt(limit), parseInt(offset)]
       );
+      
+      // Format the response data
+      const formattedValidators = validators.map(v => ({
+        address: v.address,
+        status: v.status,
+        stake: v.stake || 0,
+        votingPower: parseFloat(v.votingPower) || 0,
+        blocksValidated: v.blocksValidated || 0,
+        blocksProposed: v.blocksProposed || 0,
+        missedValidations: v.missedValidations || 0,
+        score: v.score || 0,
+        uptime: v.uptime || 100,
+        hostId: v.hostId,
+        isValidator: Boolean(v.isValidator),
+        lastActive: v.lastActive,
+        lastUpdated: v.lastUpdated
+      }));
       
       // Get total count for pagination
       const totalResult = await db.query('SELECT COUNT(*) as total FROM validators');
       const total = totalResult[0]?.total || 0;
       
       res.json({
-        validators,
+        data: formattedValidators,
         pagination: {
           page,
           limit,
           total,
-          totalPages: Math.ceil(total / limit)
-        }
+          totalPages: Math.ceil(total / limit),
+          hasNext: offset + limit < total
+        },
+        lastUpdated: validatorsCache.lastUpdated ? new Date(validatorsCache.lastUpdated).toISOString() : null
       });
     } catch (err) {
       // Table may not exist yet, return empty result
       console.warn('Validators table may not exist yet:', err.message);
+      
+      // If we have RPC cache data but no table, we can still return that
+      if (validatorsCache.data && validatorsCache.data.validators) {
+        const formattedValidators = validatorsCache.data.validators.slice(offset, offset + limit).map(v => ({
+          address: v.address,
+          status: v.status || 0,
+          stake: v.stake?.amount || 0,
+          votingPower: 0, // Can't calculate without total
+          blocksValidated: v.performance?.blocksValidated || 0,
+          blocksProposed: v.performance?.blocksProposed || 0,
+          missedValidations: v.performance?.missedValidations || 0,
+          score: v.score || 0,
+          uptime: v.performance?.uptimePercentage || 100,
+          hostId: v.stake?.hostID || null,
+          isValidator: v.stake?.isValidator || true,
+          lastActive: v.lastActive,
+          lastUpdated: validatorsCache.lastUpdated ? new Date(validatorsCache.lastUpdated).toISOString() : null
+        }));
+        
+        res.json({
+          data: formattedValidators,
+          pagination: {
+            page,
+            limit,
+            total: validatorsCache.data.total || validatorsCache.data.validators.length,
+            totalPages: Math.ceil((validatorsCache.data.total || validatorsCache.data.validators.length) / limit),
+            hasNext: offset + limit < (validatorsCache.data.total || validatorsCache.data.validators.length)
+          },
+          lastUpdated: validatorsCache.lastUpdated ? new Date(validatorsCache.lastUpdated).toISOString() : null
+        });
+        return;
+      }
+      
       res.json({
-        validators: [],
+        data: [],
         pagination: {
           page: 1,
           limit,
           total: 0,
-          totalPages: 0
-        }
+          totalPages: 0,
+          hasNext: false
+        },
+        lastUpdated: null
       });
     }
   } catch (error) {
@@ -200,4 +375,6 @@ router.get('/search', async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;
+// Export refreshValidatorsData for use in server.js
+module.exports.refreshValidatorsData = refreshValidatorsData; 

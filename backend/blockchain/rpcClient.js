@@ -42,7 +42,7 @@ async function callRpc(method, params = []) {
     
     // Log result type
     console.log(`RPC call to ${method} returned ${typeof response.data.result} result`);
-    
+
     return response.data.result;
   } catch (error) {
     console.error(`Error calling RPC method ${method}:`, error.message);
@@ -485,7 +485,36 @@ async function getTransactionByHash(hash) {
     
     console.log(`Successfully fetched transaction with hash: ${hash}`);
     
-    return response.data.result;
+    // Normalize transaction data to match our expected format
+    const rawTx = response.data.result;
+    console.log(`Raw transaction data: ${JSON.stringify(rawTx).substring(0, 200)}...`);
+    
+    const normalizedTx = {
+      // Map txid to hash if it exists
+      hash: rawTx.txid || rawTx.TransactionID || rawTx.hash || hash,
+      // Map other fields
+      from: rawTx.from || rawTx.Sender || rawTx.sender || '',
+      to: rawTx.to || rawTx.Receiver || rawTx.receiver || '',
+      value: rawTx.amount || rawTx.Amount || rawTx.value || 0,
+      blockHash: rawTx.blockHash || rawTx.BlockHash || '',
+      blockNumber: rawTx.blockHeight || rawTx.BlockNumber || rawTx.blockNumber || 0,
+      timestamp: rawTx.timestamp || rawTx.Timestamp || Math.floor(Date.now() / 1000),
+      gasPrice: rawTx.GasPrice || rawTx.gasPrice || 0,
+      gas: rawTx.GasLimit || rawTx.gas || 0,
+      gasUsed: rawTx.GasUsed || rawTx.gasUsed || 0,
+      nonce: rawTx.Nonce || rawTx.nonce || 0,
+      // Important: Map confirmed field to status if it exists
+      status: rawTx.status || (rawTx.confirmed === true ? 'confirmed' : 
+                              rawTx.confirmed === false ? 'failed' : 'unknown'),
+      fee: rawTx.fee || rawTx.Fee || rawTx.gas_fee || 0,
+      type: rawTx.type || rawTx.Type || rawTx.TxType || '',
+      data: rawTx.data || rawTx.Data || '',
+      confirmed: rawTx.confirmed
+    };
+  
+    
+    console.log(`Normalized transaction: ${JSON.stringify(normalizedTx).substring(0, 200)}...`);
+    return normalizedTx;
   } catch (error) {
     console.error(`Error fetching transaction by hash ${hash}:`, error.message);
     return null;
@@ -497,6 +526,34 @@ async function getAddressBalance(address) {
   try {
     console.log(`Fetching balance for address: ${address}`);
     
+    // First try using the callRpc function which handles response.data.result extraction
+    try {
+      const result = await callRpc('getBalance', { address });
+      
+      if (result !== null) {
+        console.log(`Successfully fetched balance for address: ${address} using callRpc`);
+        
+        // Handle different result formats
+        if (typeof result === 'object') {
+          if (result.balance !== undefined) {
+            const balance = parseFloat(result.balance);
+            console.log(`Normalized balance for ${address}: ${balance} (from result.balance)`);
+            return balance;
+          }
+        } else if (typeof result === 'number' || typeof result === 'string') {
+          const balance = parseFloat(result);
+          console.log(`Normalized balance for ${address}: ${balance} (from direct result)`);
+          return balance;
+        }
+      }
+      
+      // If we got here, callRpc worked but we couldn't extract a balance
+      console.log(`Couldn't extract balance from callRpc result for ${address}, falling back to direct RPC call`);
+    } catch (callRpcError) {
+      console.log(`Error using callRpc for ${address}, falling back to direct RPC call:`, callRpcError.message);
+    }
+    
+    // If callRpc fails or returns an unprocessable result, fall back to direct axios call
     // Use axios directly with the CORRECT format - params as object, not array
     const response = await rpcClient.post('', {
       jsonrpc: '2.0',
@@ -513,9 +570,42 @@ async function getAddressBalance(address) {
       return null;
     }
     
-    console.log(`Successfully fetched balance for address: ${address}`);
+    console.log(`Successfully fetched balance for address: ${address} using direct axios`);
     
-    return response.data.result;
+    // Properly extract the balance value
+    const result = response.data.result;
+    
+    // Handle different response formats
+    if (result === null || result === undefined) {
+      console.warn(`Received null/undefined balance for address ${address}`);
+      return 0;
+    }
+    
+    // The balance could be directly in result or in a balance property
+    let balance = 0;
+    
+    if (typeof result === 'object') {
+      // Check if result has a 'balance' property
+      if (result.balance !== undefined) {
+        balance = parseFloat(result.balance);
+      } else if (result.amount !== undefined) {
+        balance = parseFloat(result.amount);
+      } else {
+        // Try to get the first numeric property if specific fields aren't found
+        for (const key in result) {
+          if (!isNaN(parseFloat(result[key]))) {
+            balance = parseFloat(result[key]);
+            break;
+          }
+        }
+      }
+    } else if (typeof result === 'number' || typeof result === 'string') {
+      // If result is directly a number or string that can be converted to a number
+      balance = parseFloat(result);
+    }
+    
+    console.log(`Normalized balance for ${address} from direct axios: ${balance}`);
+    return balance;
   } catch (error) {
     console.error(`Error fetching balance for address ${address}:`, error.message);
     return null;
@@ -604,6 +694,42 @@ function getSubscriptionId(message) {
   return null;
 }
 
+// Get blockchain validators
+async function getValidators() {
+  try {
+    console.log('Fetching validators from blockchain');
+    
+    // Use axios directly with the CORRECT format
+    const response = await rpcClient.post('', {
+      jsonrpc: '2.0',
+      method: 'getValidators',
+      params: {},
+      id: Date.now()
+    });
+    
+    console.log(`RPC response status for getValidators: ${response.status}`);
+    
+    // Check for response errors
+    if (response.data.error) {
+      console.error(`RPC Error in getValidators:`, JSON.stringify(response.data.error));
+      return null;
+    }
+    
+    // Check if we got a valid result
+    if (!response.data.result) {
+      console.error('Empty result from RPC for getValidators');
+      return null;
+    }
+    
+    console.log(`Successfully fetched validators, found ${response.data.result.validators?.length || 0} validators`);
+    
+    return response.data.result;
+  } catch (error) {
+    console.error('Error fetching validators:', error.message);
+    return null;
+  }
+}
+
 module.exports = {
   callRpc,
   connectWebSocket,
@@ -613,5 +739,6 @@ module.exports = {
   getTransactionByHash,
   getAddressBalance,
   getChainInfo,
-  syncInitialBlocks
+  syncInitialBlocks,
+  getValidators
 }; 

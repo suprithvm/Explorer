@@ -17,6 +17,9 @@ const { connectWebSocket, syncInitialBlocks } = require('./blockchain/rpcClient'
 const { processBlock, processTransactionByHash } = require('./blockchain/dataProcessor');
 const { initializeDatabase } = require('./db/database');
 
+// Import refreshValidatorsData function
+const { refreshValidatorsData } = require('./routes/statsRoutes');
+
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -188,6 +191,14 @@ async function startServer() {
       // Sync initial blocks from the blockchain
       syncInitialBlocks().then(() => {
         console.log('Initial blocks synchronized, connecting WebSocket...');
+        
+        // Initial sync of validator data
+        console.log('Starting initial validator sync...');
+        refreshValidatorsData().then(() => {
+          console.log('Initial validator data fetched');
+        }).catch(err => {
+          console.error('Error during initial validator sync:', err);
+        });
         
         // Connect to blockchain node WebSocket
         connectWebSocket(

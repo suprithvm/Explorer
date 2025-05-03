@@ -1,6 +1,6 @@
 import { extendTheme } from '@chakra-ui/react';
 
-// Color palette inspired by popular blockchain explorers with Supereum branding
+// Enhanced color palette with more vibrant and modern colors
 const colors = {
   brand: {
     50: '#e6f7ff',
@@ -39,8 +39,8 @@ const colors = {
     900: '#522000',
   },
   gray: {
-    50: '#f7fafc',
-    100: '#edf2f7',
+    50: '#f8fafc',
+    100: '#f1f5f9',
     200: '#e2e8f0',
     300: '#cbd5e0',
     400: '#a0aec0',
@@ -51,32 +51,39 @@ const colors = {
     900: '#0d1117', // Dark background
   },
   success: {
-    500: '#38b2ac',
+    500: '#10b981',
+    600: '#059669',
   },
   error: {
-    500: '#e53e3e',
+    500: '#ef4444',
+    600: '#dc2626',
   },
   warning: {
-    500: '#dd6b20',
+    500: '#f59e0b',
+    600: '#d97706',
   },
   info: {
-    500: '#3182ce',
+    500: '#3b82f6',
+    600: '#2563eb',
   },
 };
 
-// Typography settings
+// Typography settings with more modern font stack
 const fonts = {
   heading: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
   body: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
   mono: "'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, monospace",
 };
 
-// Component-specific styles
+// Component-specific styles with enhanced aesthetics
 const components = {
   Button: {
     baseStyle: {
       fontWeight: 'medium',
       borderRadius: 'md',
+      _focus: {
+        boxShadow: 'none',
+      },
     },
     variants: {
       solid: (props) => ({
@@ -84,14 +91,33 @@ const components = {
         color: 'white',
         _hover: {
           bg: props.colorMode === 'dark' ? 'brand.400' : 'brand.600',
+          transform: 'translateY(-2px)',
+          boxShadow: 'md',
         },
+        transition: 'all 0.2s',
       }),
       outline: (props) => ({
         borderColor: props.colorMode === 'dark' ? 'brand.500' : 'brand.500',
-        color: props.colorMode === 'dark' ? 'brand.500' : 'brand.500',
+        color: props.colorMode === 'dark' ? 'brand.400' : 'brand.500',
+        _hover: {
+          bg: props.colorMode === 'dark' ? 'rgba(26, 155, 255, 0.1)' : 'rgba(0, 132, 230, 0.1)',
+        },
       }),
       ghost: (props) => ({
         color: props.colorMode === 'dark' ? 'brand.400' : 'brand.500',
+        _hover: {
+          bg: props.colorMode === 'dark' ? 'rgba(26, 155, 255, 0.1)' : 'rgba(0, 132, 230, 0.1)',
+        },
+      }),
+      glass: (props) => ({
+        bg: props.colorMode === 'dark' ? 'rgba(26, 32, 44, 0.7)' : 'rgba(255, 255, 255, 0.8)',
+        backdropFilter: 'blur(8px)',
+        color: props.colorMode === 'dark' ? 'white' : 'gray.800',
+        borderWidth: '1px',
+        borderColor: props.colorMode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        _hover: {
+          bg: props.colorMode === 'dark' ? 'rgba(26, 32, 44, 0.8)' : 'rgba(255, 255, 255, 0.9)',
+        },
       }),
     },
   },
@@ -99,13 +125,18 @@ const components = {
     baseStyle: (props) => ({
       container: {
         bg: props.colorMode === 'dark' ? 'gray.800' : 'white',
-        borderRadius: 'lg',
+        borderRadius: 'xl',
         borderWidth: '1px',
         borderColor: props.colorMode === 'dark' ? 'gray.700' : 'gray.200',
-        boxShadow: 'sm',
-        transition: 'all 0.2s',
+        boxShadow: props.colorMode === 'dark' ? 
+          '0 4px 20px rgba(0, 0, 0, 0.25)' : 
+          '0 4px 20px rgba(0, 0, 0, 0.05)',
+        transition: 'all 0.3s',
         _hover: {
-          boxShadow: 'md',
+          transform: 'translateY(-4px)',
+          boxShadow: props.colorMode === 'dark' ? 
+            '0 10px 25px rgba(0, 0, 0, 0.3)' : 
+            '0 10px 25px rgba(0, 0, 0, 0.1)',
           borderColor: props.colorMode === 'dark' ? 'gray.600' : 'gray.300',
         },
       },
@@ -116,13 +147,21 @@ const components = {
       color: props.colorMode === 'dark' ? 'brand.400' : 'brand.500',
       _hover: {
         textDecoration: 'none',
+        color: props.colorMode === 'dark' ? 'brand.300' : 'brand.600',
       },
+      transition: 'all 0.2s',
     }),
   },
   Heading: {
     baseStyle: {
       fontWeight: 'semibold',
     },
+    variants: {
+      gradient: {
+        bgGradient: 'linear(to-r, brand.500, secondary.500)',
+        bgClip: 'text',
+      },
+    }
   },
   Table: {
     variants: {
@@ -131,9 +170,21 @@ const components = {
           borderColor: props.colorMode === 'dark' ? 'gray.700' : 'gray.200',
           fontSize: 'sm',
           fontWeight: 'medium',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+          color: props.colorMode === 'dark' ? 'gray.400' : 'gray.500',
         },
         td: {
           borderColor: props.colorMode === 'dark' ? 'gray.700' : 'gray.200',
+          py: 3,
+        },
+        tbody: {
+          tr: {
+            transition: 'all 0.2s',
+            _hover: {
+              bg: props.colorMode === 'dark' ? 'gray.750' : 'gray.50',
+            },
+          },
         },
       }),
     },
@@ -144,23 +195,44 @@ const components = {
       textTransform: 'none',
       fontWeight: 'medium',
     },
+    variants: {
+      glass: (props) => ({
+        bg: props.colorMode === 'dark' ? 'rgba(26, 32, 44, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+        backdropFilter: 'blur(8px)',
+        borderWidth: '1px',
+        borderColor: props.colorMode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        color: props.colorMode === 'dark' ? 'white' : 'gray.800',
+      }),
+    },
+  },
+  Tooltip: {
+    baseStyle: (props) => ({
+      bg: props.colorMode === 'dark' ? 'gray.700' : 'gray.900',
+      color: 'white',
+      fontSize: 'sm',
+      borderRadius: 'md',
+      px: 3,
+      py: 2,
+    }),
   },
 };
 
-// Global styles
+// Global styles with improved scrollbar and transitions
 const styles = {
   global: (props) => ({
     body: {
       bg: props.colorMode === 'dark' ? 'gray.900' : 'gray.50',
       color: props.colorMode === 'dark' ? 'white' : 'gray.800',
+      transition: 'background-color 0.2s',
     },
-    // Custom scrollbar
+    // Modern scrollbar
     '::-webkit-scrollbar': {
       width: '8px',
       height: '8px',
     },
     '::-webkit-scrollbar-track': {
       bg: props.colorMode === 'dark' ? 'gray.800' : 'gray.100',
+      borderRadius: '4px',
     },
     '::-webkit-scrollbar-thumb': {
       bg: props.colorMode === 'dark' ? 'gray.600' : 'gray.400',
@@ -169,38 +241,71 @@ const styles = {
     '::-webkit-scrollbar-thumb:hover': {
       bg: props.colorMode === 'dark' ? 'gray.500' : 'gray.500',
     },
+    // Smooth scrolling
+    html: {
+      scrollBehavior: 'smooth',
+    },
   }),
 };
 
-// Layer styles for reusable box styles
+// Layer styles with glass morphism and gradients
 const layerStyles = {
   card: {
     bg: 'white',
     _dark: {
       bg: 'gray.800',
     },
-    borderRadius: 'lg',
+    borderRadius: 'xl',
     boxShadow: 'sm',
     p: 6,
+    transition: 'all 0.3s',
+    _hover: {
+      transform: 'translateY(-4px)',
+      boxShadow: 'lg',
+    },
+  },
+  glassMorphism: {
+    bg: 'rgba(255, 255, 255, 0.8)',
+    _dark: {
+      bg: 'rgba(26, 32, 44, 0.7)',
+    },
+    backdropFilter: 'blur(8px)',
+    borderRadius: 'xl',
+    borderWidth: '1px',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    _dark: {
+      borderColor: 'rgba(255, 255, 255, 0.05)',
+    },
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
+    _dark: {
+      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+    },
   },
   gradientBox: {
     bgGradient: 'linear(to-r, brand.500, secondary.500)',
     color: 'white',
-    borderRadius: 'lg',
+    borderRadius: 'xl',
     p: 6,
+    boxShadow: '0 4px 20px rgba(0, 132, 230, 0.3)',
   },
   statCard: {
     bg: 'white',
     _dark: {
       bg: 'gray.800',
     },
-    borderRadius: 'lg',
-    boxShadow: 'sm',
+    borderRadius: 'xl',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+    _dark: {
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+    },
     p: 4,
-    transition: 'transform 0.2s',
+    transition: 'transform 0.3s, box-shadow 0.3s',
     _hover: {
-      transform: 'translateY(-2px)',
-      boxShadow: 'md',
+      transform: 'translateY(-5px)',
+      boxShadow: '0 10px 20px rgba(0, 0, 0, 0.1)',
+      _dark: {
+        boxShadow: '0 10px 20px rgba(0, 0, 0, 0.3)',
+      },
     },
   },
 };
@@ -214,11 +319,18 @@ const textStyles = {
   mono: {
     fontFamily: 'mono',
     fontSize: 'sm',
+    letterSpacing: '-0.5px',
   },
   address: {
     fontFamily: 'mono',
     fontSize: 'sm',
-    letterSpacing: 'tight',
+    letterSpacing: '-0.3px',
+    fontWeight: 'medium',
+  },
+  gradient: {
+    bgGradient: 'linear(to-r, brand.500, secondary.500)',
+    bgClip: 'text',
+    fontWeight: 'bold',
   },
 };
 
