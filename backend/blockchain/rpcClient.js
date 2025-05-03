@@ -64,10 +64,25 @@ let lastBlockNumber = null;
 let lastTxHashes = new Set();
 
 function connectWebSocket(onBlockCallback, onTxCallback) {
+  console.log('Connecting to WebSocket with callbacks:',
+              `blockCallback: ${typeof onBlockCallback}`,
+              `txCallback: ${typeof onTxCallback}`);
+  
+  // Validate callbacks
+  if (typeof onBlockCallback !== 'function') {
+    console.error('Invalid block callback provided to connectWebSocket');
+  }
+  
+  if (typeof onTxCallback !== 'function') {
+    console.error('Invalid transaction callback provided to connectWebSocket');
+  }
+  
   if (ws) {
+    console.log('Terminating existing WebSocket connection');
     ws.terminate();
   }
 
+  console.log(`Connecting to WebSocket at ${WS_URL}`);
   ws = new WebSocket(WS_URL);
 
   ws.on('open', () => {
@@ -81,12 +96,23 @@ function connectWebSocket(onBlockCallback, onTxCallback) {
       usePolling = false;
     }
 
-    // Subscribe to new blocks
-    const blockSubId = subscribeToBlocks(onBlockCallback);
+    // Create a bound version of the callbacks to ensure "this" context is preserved
+    const boundBlockCallback = (data) => {
+      console.log('Bound block callback executing with data:', JSON.stringify(data).substring(0, 100));
+      return onBlockCallback(data);
+    };
+    
+    const boundTxCallback = (data) => {
+      console.log('Bound transaction callback executing with data:', JSON.stringify(data).substring(0, 100));
+      return onTxCallback(data);
+    };
+
+    // Subscribe to new blocks with bound callback
+    const blockSubId = subscribeToBlocks(boundBlockCallback);
     console.log(`Subscribed to new blocks with ID: ${blockSubId}`);
 
-    // Subscribe to new transactions
-    const txSubId = subscribeToTransactions(onTxCallback);
+    // Subscribe to new transactions with bound callback
+    const txSubId = subscribeToTransactions(boundTxCallback);
     console.log(`Subscribed to new transactions with ID: ${txSubId}`);
   });
 
@@ -97,19 +123,38 @@ function connectWebSocket(onBlockCallback, onTxCallback) {
       
       // Handle subscription responses
       if (message.id && subscriptions.has(message.id)) {
+        console.log(`Received response for subscription request ID: ${message.id}`);
         const { callback, type } = subscriptions.get(message.id);
-        if (message.result) {
-          console.log(`Subscription confirmed for ${type} with ID: ${message.result}`);
-          subscriptions.set(message.result, { callback, type });
+        
+        const permanentSubId = getSubscriptionId(message);
+        
+        if (permanentSubId) {
+          console.log(`Subscription confirmed for ${type} with ID: ${permanentSubId}`);
+          
+          // Store the subscription with the new ID provided by the node
+          subscriptions.set(permanentSubId, { callback, type });
+          console.log(`Mapped subscription ID ${message.id} to permanent ID: ${permanentSubId}`);
+          
+          // Remove the temporary ID
+          subscriptions.delete(message.id);
+        } else if (message.error) {
+          console.error(`Subscription for ${type} failed:`, JSON.stringify(message.error));
           subscriptions.delete(message.id);
         }
       }
       
       // Handle subscription notifications
-      if (message.method === 'sup_subscription' && message.params && message.params.subscription) {
-        const subId = message.params.subscription;
-        if (subscriptions.has(subId)) {
+      if (message.method === 'sup_subscription' && message.params) {
+        console.log('Processing subscription notification:', JSON.stringify(message.params).substring(0, 300));
+        
+        // Get subscription ID using the helper function
+        const subId = getSubscriptionId(message);
+        console.log(`Extracted subscription ID: ${subId}`);
+        
+        if (subId && subscriptions.has(subId)) {
+          console.log(`Found subscription handler for ID: ${subId}`);
           const { callback, type } = subscriptions.get(subId);
+          console.log(`Subscription type: ${type}, callback type: ${typeof callback}`);
           
           // Process the result based on Supereum's format
           const result = message.params.result;
@@ -133,10 +178,15 @@ function connectWebSocket(onBlockCallback, onTxCallback) {
               console.log(`Callback type: ${typeof callback}`);
               console.log(`Is callback a function: ${typeof callback === 'function'}`);
               
-              // This is the key part - we pass the hash to the callback which will trigger
-              // the processBlock function to fetch the full block data and save it to the database
-              callback(blockData);
-              console.log(`Block callback called for hash: ${blockData.hash}`);
+              // Safe callback execution
+              if (typeof callback === 'function') {
+                // This is the key part - we pass the hash to the callback which will trigger
+                // the processBlock function to fetch the full block data and save it to the database
+                callback(blockData);
+                console.log(`Block callback called for hash: ${blockData.hash}`);
+              } else {
+                console.error(`Invalid callback for subscription ${subId}, type: ${typeof callback}`);
+              }
             } else {
               console.error('Block notification missing hash:', result);
             }
@@ -242,32 +292,54 @@ function startPolling(onBlockCallback, onTxCallback) {
 }
 
 function subscribeToBlocks(callback) {
+  console.log(`Setting up block subscription with callback type: ${typeof callback}`);
+  
+  if (typeof callback !== 'function') {
+    console.error('Invalid callback provided for block subscription:', callback);
+    return -1; // Return negative ID to indicate error
+  }
+  
   const id = nextSubscriptionId++;
   subscriptions.set(id, { callback, type: 'new_blocks' });
+  console.log(`Created subscription for new_blocks with ID: ${id}`);
   
   if (ws && ws.readyState === WebSocket.OPEN) {
+    console.log(`Sending block subscription request with ID: ${id}`);
     ws.send(JSON.stringify({
       jsonrpc: '2.0',
       method: 'sup_subscribe',
       params: ['new_blocks'],
       id
     }));
+  } else {
+    console.error('WebSocket not connected, cannot subscribe to blocks');
   }
   
   return id;
 }
 
 function subscribeToTransactions(callback) {
+  console.log(`Setting up transaction subscription with callback type: ${typeof callback}`);
+  
+  if (typeof callback !== 'function') {
+    console.error('Invalid callback provided for transaction subscription:', callback);
+    return -1; // Return negative ID to indicate error
+  }
+  
   const id = nextSubscriptionId++;
   subscriptions.set(id, { callback, type: 'new_transactions' });
+  console.log(`Created subscription for new_transactions with ID: ${id}`);
   
   if (ws && ws.readyState === WebSocket.OPEN) {
+    console.log(`Sending transaction subscription request with ID: ${id}`);
     ws.send(JSON.stringify({
       jsonrpc: '2.0',
       method: 'sup_subscribe',
       params: ['new_transactions'],
       id
     }));
+  } else {
+    console.error('WebSocket not connected, cannot subscribe to transactions');
   }
   
   return id;
@@ -278,17 +350,16 @@ async function getBlockByHash(hash) {
   try {
     console.log(`Fetching block with hash: ${hash}`);
     
-    // For Supereum, we need to wrap the hash in an object
-    const params = { hash };
-    
     // Make the RPC call with detailed logging
-    console.log(`Making RPC call to getBlockByHash with params: ${JSON.stringify(params)}`);
+    console.log(`Making RPC call to getBlockByHash with hash: ${hash}`);
     
-    // Use axios directly to have more control over the request
+    // Use axios directly but with the CORRECT format - params as object, not array
     const response = await rpcClient.post('', {
       jsonrpc: '2.0',
       method: 'getBlockByHash',
-      params: [params],
+      params: {
+        hash: hash
+      },
       id: Date.now()
     });
     
@@ -321,13 +392,36 @@ async function getBlockByNumber(number) {
   try {
     console.log(`Fetching block with number: ${number}`);
     
-    // For Supereum, we need to use height instead of number
-    const params = { height: parseInt(number) };
+    // Make the RPC call with detailed logging
+    console.log(`Making RPC call to getBlockByHeight with height: ${number}`);
     
-    const result = await callRpc('getBlockByHeight', [params]);
+    // Use axios directly with the CORRECT format - params as object, not array
+    const response = await rpcClient.post('', {
+      jsonrpc: '2.0',
+      method: 'getBlockByHeight',
+      params: {
+        height: parseInt(number)
+      },
+      id: Date.now()
+    });
+    
+    console.log(`RPC response status: ${response.status}`);
+    
+    // Check for response errors
+    if (response.data.error) {
+      console.error(`RPC Error:`, JSON.stringify(response.data.error));
+      return null;
+    }
+    
+    // Check if we got a valid result
+    if (!response.data.result) {
+      console.error(`Empty result from RPC for block number: ${number}`);
+      return null;
+    }
+    
     console.log(`Successfully fetched block with number: ${number}`);
     
-    return result;
+    return response.data.result;
   } catch (error) {
     console.error(`Error fetching block by number ${number}:`, error.message);
     return null;
@@ -362,12 +456,70 @@ async function getLatestBlocks(limit = 10) {
 
 // Transaction methods
 async function getTransactionByHash(hash) {
-  return callRpc('getTransaction', [{ txid: hash }]);
+  try {
+    console.log(`Fetching transaction with hash: ${hash}`);
+    
+    // Use axios directly with the CORRECT format - params as object, not array
+    const response = await rpcClient.post('', {
+      jsonrpc: '2.0',
+      method: 'getTransaction',
+      params: {
+        txid: hash
+      },
+      id: Date.now()
+    });
+    
+    console.log(`RPC response status: ${response.status}`);
+    
+    // Check for response errors
+    if (response.data.error) {
+      console.error(`RPC Error:`, JSON.stringify(response.data.error));
+      return null;
+    }
+    
+    // Check if we got a valid result
+    if (!response.data.result) {
+      console.error(`Empty result from RPC for transaction hash: ${hash}`);
+      return null;
+    }
+    
+    console.log(`Successfully fetched transaction with hash: ${hash}`);
+    
+    return response.data.result;
+  } catch (error) {
+    console.error(`Error fetching transaction by hash ${hash}:`, error.message);
+    return null;
+  }
 }
 
 // Address methods
 async function getAddressBalance(address) {
-  return callRpc('getBalance', [{ address }]);
+  try {
+    console.log(`Fetching balance for address: ${address}`);
+    
+    // Use axios directly with the CORRECT format - params as object, not array
+    const response = await rpcClient.post('', {
+      jsonrpc: '2.0',
+      method: 'getBalance',
+      params: {
+        address: address
+      },
+      id: Date.now()
+    });
+    
+    // Check for response errors
+    if (response.data.error) {
+      console.error(`RPC Error:`, JSON.stringify(response.data.error));
+      return null;
+    }
+    
+    console.log(`Successfully fetched balance for address: ${address}`);
+    
+    return response.data.result;
+  } catch (error) {
+    console.error(`Error fetching balance for address ${address}:`, error.message);
+    return null;
+  }
 }
 
 // Chain info
@@ -438,6 +590,18 @@ async function syncInitialBlocks() {
   } catch (error) {
     console.error('Error syncing initial blocks:', error);
   }
+}
+
+// Helper to normalize subscription IDs from different message formats
+function getSubscriptionId(message) {
+  if (!message || typeof message !== 'object') return null;
+  
+  // Handle various subscription ID formats
+  if (message.params?.subscription) return message.params.subscription;
+  if (message.params?.subscription_id) return message.params.subscription_id;
+  if (message.result && typeof message.result === 'string') return message.result;
+  
+  return null;
 }
 
 module.exports = {
