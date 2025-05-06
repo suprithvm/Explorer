@@ -34,14 +34,30 @@ export const getNetworkStats = async () => {
 export const getLatestBlocks = async (page = 1, limit = 10) => {
   try {
     const response = await api.get(`/blocks?page=${page}&limit=${limit}`);
-    // Return a consistent structure so the frontend always gets { data: [...] }
+    // Return a consistent structure so the frontend always gets { data: [...], pagination: {...} }
     return {
-      data: response.data.blocks || []
+      data: response.data.blocks || [],
+      pagination: response.data.pagination || {
+        page,
+        limit,
+        total: 0,
+        totalPages: 0,
+        hasNext: false
+      }
     };
   } catch (error) {
     console.error('Error fetching latest blocks:', error);
     // Return empty data instead of throwing to prevent crashes
-    return { data: [] };
+    return { 
+      data: [],
+      pagination: {
+        page,
+        limit,
+        total: 0,
+        totalPages: 0,
+        hasNext: false
+      }
+    };
   }
 };
 
@@ -92,14 +108,30 @@ export const getBlockTransactions = async (identifier, page = 1, limit = 20) => 
 export const getLatestTransactions = async (page = 1, limit = 20) => {
   try {
     const response = await api.get(`/transactions?page=${page}&limit=${limit}`);
-    // Return a consistent structure so the frontend always gets { data: [...] }
+    // Return a consistent structure so the frontend always gets { data: [...], pagination: {...} }
     return {
-      data: response.data.transactions || []
+      data: response.data.transactions || [],
+      pagination: response.data.pagination || {
+        page,
+        limit,
+        total: 0,
+        totalPages: 0,
+        hasNext: false
+      }
     };
   } catch (error) {
     console.error('Error fetching latest transactions:', error);
     // Return empty data instead of throwing to prevent crashes
-    return { data: [] };
+    return { 
+      data: [],
+      pagination: {
+        page,
+        limit,
+        total: 0,
+        totalPages: 0,
+        hasNext: false
+      }
+    };
   }
 };
 

@@ -17,86 +17,73 @@ router.get('/:address', async (req, res) => {
     
     console.log(`Fetching data for address: ${address}, exists in DB: ${!!dbAddressData}`);
     
-    // Regardless of whether it exists in DB or not, fetch the latest data from RPC
+    // Always fetch the latest data from RPC using getAccountState
     try {
-      // Get address data from blockchain node
-      const { callRpc } = require('../blockchain/rpcClient');
+      // Get address data from blockchain node using getAccountState
+      let rpcAddressData = null;
       
-      // First, try to get the account state which has comprehensive data
-      let rpcAddressData = await callRpc('getAccountState', { address });
+      // Make the getAccountState API call explicitly with the correct format
+      const accountStateResponse = await callRpc('getAccountState', { address });
+      console.log(`getAccountState response for ${address}:`, JSON.stringify(accountStateResponse).substring(0, 200));
       
-      // If response has a nested result structure, use that
-      if (rpcAddressData && rpcAddressData.result && typeof rpcAddressData.result === 'object') {
-        console.log(`RPC response has a nested result structure for ${address}`);
-        rpcAddressData = rpcAddressData.result;
+      // If we got a proper response with a result field, use that
+      if (accountStateResponse && accountStateResponse.result) {
+        rpcAddressData = accountStateResponse.result;
+      } else if (accountStateResponse && typeof accountStateResponse === 'object') {
+        // Sometimes the response might not be nested under 'result'
+        rpcAddressData = accountStateResponse;
       }
       
-      // If that doesn't work, fall back to wallet info
+      // If getAccountState doesn't work, try the fallbacks
       if (!rpcAddressData) {
+        console.log(`getAccountState failed for ${address}, trying fallbacks`);
+        // Try getWalletInfo
         rpcAddressData = await callRpc('getWalletInfo', { address });
-      }
-      
-      // If that still doesn't work, just get balance directly
-      if (!rpcAddressData) {
-        const balance = await getAddressBalance(address);
-        console.log(`Direct balance query for ${address} returned: ${balance}`);
         
-        if (balance !== null) {
-          rpcAddressData = {
-            address,
-            balance: balance,
-            nonce: 0,
-            transactions: 0
-          };
-        }
-      } else {
-        // We got data, but ensure balance is correctly parsed
-        if (typeof rpcAddressData === 'object') {
-          // Try to extract balance from various possible fields
-          if (rpcAddressData.balance === undefined || rpcAddressData.balance === null || rpcAddressData.balance === 0) {
-            // If no balance in the response, fetch it directly
-            const directBalance = await getAddressBalance(address);
-            if (directBalance !== null && directBalance > 0) {
-              rpcAddressData.balance = directBalance;
-            }
-          } else if (typeof rpcAddressData.balance === 'string') {
-            // Convert string balance to number
-            rpcAddressData.balance = parseFloat(rpcAddressData.balance);
-          }
+        // If that still doesn't work, just get balance directly
+        if (!rpcAddressData) {
+          const balance = await getAddressBalance(address);
+          console.log(`Direct balance query for ${address} returned: ${balance}`);
           
-          // Also handle nonce or transactions count
-          if (rpcAddressData.utxoCount) {
-            rpcAddressData.transactions = rpcAddressData.utxoCount;
+          if (balance !== null) {
+            rpcAddressData = {
+              address,
+              balance: balance,
+              nonce: 0,
+              transactions: 0
+            };
           }
         }
       }
       
-      // If we got data from RPC, update or insert into the database
+      // Process the RPC data if we got it
       if (rpcAddressData) {
         console.log(`Got RPC data for address ${address}: ${JSON.stringify(rpcAddressData).substring(0, 200)}`);
         
-        // Extract the data we need
-        // Make sure balance is a number and not "0" or some other string
+        // Extract the balance, ensuring it's a number
         const balance = typeof rpcAddressData.balance === 'string' 
           ? parseFloat(rpcAddressData.balance) 
           : (rpcAddressData.balance || 0);
         
         console.log(`Extracted balance for ${address}: ${balance}`);
         
-        const txCount = rpcAddressData.transactions || rpcAddressData.nonce || 0;
+        // Get transaction count (nonce)
+        const txCount = rpcAddressData.transactions || rpcAddressData.utxoCount || rpcAddressData.nonce || 0;
         
-        // Update or insert into the database
+        // Always update the database with the latest balance from RPC
         if (dbAddressData) {
-          // Update existing record - IMPORTANT: Use the RPC balance instead of calculating
+          console.log(`Updating address ${address} in database with latest balance: ${balance}`);
+          // Update existing record with the latest balance from RPC
           await db.query(
             `UPDATE addresses SET 
               balance = ?, 
               tx_count = ?,
-              last_updated = CURRENT_TIMESTAMP
+              updated_at = CURRENT_TIMESTAMP
             WHERE address = ?`,
-            [balance, txCount > dbAddressData.tx_count ? txCount : dbAddressData.tx_count, address]
+            [balance, Math.max(txCount, dbAddressData.tx_count || 0), address]
           );
         } else {
+          console.log(`Inserting new address ${address} in database with balance: ${balance}`);
           // Insert new record
           await db.query(
             `INSERT INTO addresses (
@@ -106,13 +93,13 @@ router.get('/:address', async (req, res) => {
           );
         }
         
-        // Set the data to return
+        // Set the data to return to the frontend
         addressData = {
           address,
-          balance: balance,
+          balance: balance, // Always use the latest balance from RPC
           total_received: dbAddressData?.total_received || 0,
           total_sent: dbAddressData?.total_sent || 0,
-          tx_count: txCount > (dbAddressData?.tx_count || 0) ? txCount : (dbAddressData?.tx_count || 0),
+          tx_count: Math.max(txCount, dbAddressData?.tx_count || 0),
           isValidator: rpcAddressData.isValidator || false,
           isActiveValidator: rpcAddressData.isActiveValidator || false,
           stakedAmount: rpcAddressData.staking?.stake || 0
